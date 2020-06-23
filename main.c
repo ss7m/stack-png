@@ -6,8 +6,13 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+#include <getopt.h>
 
 #include <png.h>
+
+extern int optind;
+extern char *optarg;
 
 #define STACK_PNG_VERSION "1.6.37"
 #define PNG_SIG_LENGTH 8
@@ -15,6 +20,9 @@
 #define stack_image_row_size(image) (sizeof(uint8_t) * 3 * (image)->width)
 #define max(A, B) ((A) > (B) ? (A) : (B))
 #define DEBUG_BOOL(b) printf("%s\n", (b) ? "true" : "false")
+
+#define true 1
+#define false 0
 
 struct stack_png {
         png_struct *png;
@@ -239,21 +247,48 @@ void stack_image_paste(struct stack_image *dest, struct stack_image *src,
         }
 }
 
+int stack_parse_int(char *s) {
+        int n = 0, c;
+        while (('0' ^ (c = *(s++))) < 10)
+                n = n * 10 + c - '0';
+        return n;
+}
+
 int main(int argc, char **argv) {
-        size_t width = 0, height = 0, y;
-        int i;
+        size_t width, height, y;
+        int i, option, num_images, gap = 0;
         struct stack_image result, *images;
         struct stack_png writer;
+        char *out_file = "out.png";
 
         if (argc == 1) {
                 fprintf(stderr, "Send at least 1 argument\n");
                 return EXIT_FAILURE;
         }
 
-        images = malloc(sizeof(struct stack_image) * (argc - 1));
-        for (i = 0; i < argc - 1; i++) {
+        while ((option = getopt(argc, argv, "ho:g:")) != -1) {
+                switch (option) {
+                case 'o':
+                        out_file = optarg;
+                        break;
+                case 'g':
+                        gap = stack_parse_int(optarg);
+                        break;
+                case 'h':
+                        printf("stack-png");
+                        return EXIT_SUCCESS;
+                default:
+                        return EXIT_FAILURE;
+                }
+        }
+
+        num_images = argc - optind;
+        images = malloc(sizeof(struct stack_image) * num_images);
+        width = 0;
+        height = gap * (num_images - 1);
+        for (i = 0; i < num_images; i++) {
                 struct stack_png reader;
-                stack_png_reader_init(&reader, argv[i+1]);
+                stack_png_reader_init(&reader, argv[i+optind]);
                 stack_png_reader_load_image(&reader, &images[i]);
                 width = max(width, images[i].width);
                 height += images[i].height;
@@ -261,20 +296,19 @@ int main(int argc, char **argv) {
         }
 
         stack_image_init_blank(&result, width, height);
-
         y = 0;
-        for (i = 0; i < argc - 1; i++) {
+        for (i = 0; i < num_images; i++) {
                 size_t x = (width - images[i].width) / 2;
                 stack_image_paste(&result, &images[i], x, y);
-                y += images[i].height;
+                y += images[i].height + gap;
         }
 
-        stack_png_writer_init(&writer, "out.png");
+        stack_png_writer_init(&writer, out_file);
         stack_png_writer_save_image(&writer, &result);
 
         stack_png_writer_destroy(&writer);
         stack_image_destroy(&result);
-        for (i = 0; i < argc - 1; i++)
+        for (i = 0; i < num_images; i++)
                 stack_image_destroy(&images[i]);
         free(images);
         return EXIT_SUCCESS;

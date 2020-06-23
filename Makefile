@@ -7,7 +7,7 @@ CFLAGS=-Wall -Werror -Wextra -Wpedantic -std=c90 \
 
 CLIBS=$(shell for lib in $(LIBS); do pkg-config --libs $$lib; done)
 
-OPT=-O2 -s -flto
+OPT=-O3 -s -flto
 
 DEBUG=-Og -g -DDEBUG
 
