@@ -2,7 +2,7 @@ LIBS=libpng
 
 INSTALL_DIR=$(HOME)/.local/bin
 
-CFLAGS=-Wall -Werror -Wextra -Wpedantic -std=c90 \
+CFLAGS=-Wall -Werror -Wextra -Wpedantic -ansi -pedantic \
 	   $(shell for lib in $(LIBS); do pkg-config --cflags $$lib; done)
 
 CLIBS=$(shell for lib in $(LIBS); do pkg-config --libs $$lib; done)

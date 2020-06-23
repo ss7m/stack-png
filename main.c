@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
 #include <getopt.h>
 
 #include <png.h>
@@ -256,17 +255,26 @@ int stack_parse_int(char *s) {
 
 int main(int argc, char **argv) {
         size_t width, height, y;
-        int i, option, num_images, gap = 0;
+        int i, option, num_images, gap = 0, long_index;
         struct stack_image result, *images;
         struct stack_png writer;
         char *out_file = "out.png";
+        struct option long_options[] = {
+                { "help",      false, NULL, 'h' },
+                { "output",    true,  NULL, 'o' },
+                { "gap-width", true,  NULL, 'g' },
+                { 0,           0,     0,     0  }
+        };
 
         if (argc == 1) {
                 fprintf(stderr, "Send at least 1 argument\n");
                 return EXIT_FAILURE;
         }
 
-        while ((option = getopt(argc, argv, "ho:g:")) != -1) {
+        while ((option = getopt_long(argc, argv, "ho:g:", long_options, &long_index)) != -1) {
+                if (option == 0)
+                        option = long_options[long_index].val;
+
                 switch (option) {
                 case 'o':
                         out_file = optarg;
@@ -275,7 +283,15 @@ int main(int argc, char **argv) {
                         gap = stack_parse_int(optarg);
                         break;
                 case 'h':
-                        printf("stack-png");
+                        printf("Usage: stack-png [OPTION]... [FILE]...\n");
+                        printf("    Vertically stack a list of png files\n");
+                        printf("\n");
+                        printf("OPTIONS\n");
+                        printf("-h --help        Print this message and exit\n");
+                        printf("-o --output=FILE Write the generated png to FILE\n");
+                        printf("                 Default: out.png\n");
+                        printf("-g --gap-width=n Place an n pixel gap between each FILE\n");
+                        printf("                 Default: 0\n");
                         return EXIT_SUCCESS;
                 default:
                         return EXIT_FAILURE;
