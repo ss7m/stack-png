@@ -13,17 +13,34 @@
 extern int optind;
 extern char *optarg;
 
+/*
+ * Several TODO
+ * TODO: Seperate stack_png_reader and stack_png_writer
+ *      reader has width and height
+ *      writer holds on to file pointer
+ * TODO:
+        use past_from_reader so that we do like 50% less memcpy
+ */
+
 #define STACK_PNG_VERSION "1.6.37"
 #define PNG_SIG_LENGTH 8
 
 #define stack_image_row_size(image) (sizeof(uint8_t) * 3 * (image)->width)
+#define stack_png_reader_row_size(reader) (sizeof(uint8_t) * 3 * (reader)->width)
 #define max(A, B) ((A) > (B) ? (A) : (B))
 #define DEBUG_BOOL(b) printf("%s\n", (b) ? "true" : "false")
 
 #define true 1
 #define false 0
 
-struct stack_png {
+struct stack_png_reader {
+        png_struct *png;
+        png_info *info;
+        size_t width;
+        size_t height;
+};
+
+struct stack_png_writer {
         png_struct *png;
         png_info *info;
         FILE *file;
@@ -44,6 +61,13 @@ struct stack_pixel {
         uint8_t b;
 };
 
+void stack_memcpy(uint8_t * __restrict__ dest, uint8_t * __restrict__ src, size_t n) {
+        size_t i;
+        for (i = 0; i < n; i++) {
+                dest[i] = src[i];
+        }
+}
+
 /*
  * Reads the first 8 bytes and checks them against the magic png header
  * Should probably be followed with a call to "png_set_sig_bytes"
@@ -58,7 +82,7 @@ int stack_check_if_png(FILE *file) {
  * struct stack_png reading functions
  */
 
-void stack_png_reader_init(struct stack_png *reader, char *file_name) {
+void stack_png_reader_init(struct stack_png_reader *reader, char *file_name) {
         png_struct *png;
         png_info *info;
         FILE *file;
@@ -96,37 +120,34 @@ void stack_png_reader_init(struct stack_png *reader, char *file_name) {
 
         reader->png = png;
         reader->info = info;
-        reader->file = file;
+        reader->width = png_get_image_width(png, info);
+        reader->height = png_get_image_height(png, info);
+        fclose(file);
 }
 
-void stack_png_reader_destroy(struct stack_png *reader) {
+void stack_png_reader_destroy(struct stack_png_reader *reader) {
         png_destroy_read_struct(&reader->png, &reader->info, NULL);
-        fclose(reader->file);
 }
 
-void stack_png_reader_load_image(struct stack_png *reader, struct stack_image *image) {
+void stack_png_reader_load_image(struct stack_png_reader *reader, struct stack_image *image) {
         size_t i, row_size;
         uint8_t **image_rows;
 
-        image->width = png_get_image_width(reader->png, reader->info);
-        image->height = png_get_image_height(reader->png, reader->info);
+        image->width = reader->width;
+        image->height = reader->height;
         row_size = stack_image_row_size(image);
         image->data = malloc(row_size * image->height);
 
         image_rows = png_get_rows(reader->png, reader->info);
-        for(i = 0; i < image->height; i++) {
-                memcpy(
-                        image->data + i * row_size,
-                        image_rows[i],
-                        row_size);
-        }
+        for(i = 0; i < image->height; i++)
+                memcpy(image->data + i * row_size, image_rows[i], row_size);
 }
 
 /*
  * struct stack_png writing functions
  */
 
-void stack_png_writer_init(struct stack_png *writer, char *file_name) {
+void stack_png_writer_init(struct stack_png_writer *writer, char *file_name) {
         png_struct *png;
         png_info *info;
         FILE *file;
@@ -155,12 +176,12 @@ void stack_png_writer_init(struct stack_png *writer, char *file_name) {
         writer->file = file;
 }
 
-void stack_png_writer_destroy(struct stack_png *writer) {
+void stack_png_writer_destroy(struct stack_png_writer *writer) {
         png_destroy_write_struct(&writer->png, &writer->info);
         fclose(writer->file);
 }
 
-void stack_png_writer_save_image(struct stack_png *writer, struct stack_image *image) {
+void stack_png_writer_save_image(struct stack_png_writer *writer, struct stack_image *image) {
         uint8_t **data;
         size_t row_size, i;
 
@@ -229,19 +250,20 @@ void stack_image_init_blank(struct stack_image *image, size_t width, size_t heig
 /*
  * Does no safety checks
  */
-void stack_image_paste(struct stack_image *dest, struct stack_image *src,
+void stack_image_paste_png_reader(struct stack_image *dest,
+                struct stack_png_reader *src,
                 size_t x, size_t y) {
         size_t i, dest_row_size, src_row_size;
-        uint8_t *dest_location;
+        uint8_t **src_rows, *dest_location;
 
         dest_row_size = stack_image_row_size(dest);
-        src_row_size = stack_image_row_size(src);
+        src_row_size = stack_png_reader_row_size(src);
+        src_rows = png_get_rows(src->png, src->info);
         dest_location = dest->data + y * dest_row_size + 3 * x;
 
         for(i = 0; i < src->height; i++) {
-                memcpy(
-                        dest_location + i * dest_row_size,
-                        src->data + i * src_row_size,
+                memcpy(dest_location + i * dest_row_size,
+                        src_rows[i],
                         src_row_size);
         }
 }
@@ -256,8 +278,9 @@ int stack_parse_int(char *s) {
 int main(int argc, char **argv) {
         size_t width, height, y;
         int i, option, num_images, gap = 0, long_index;
-        struct stack_image result, *images;
-        struct stack_png writer;
+        struct stack_image result;
+        struct stack_png_writer writer;
+        struct stack_png_reader *readers;
         char *out_file = "out.png";
         struct option long_options[] = {
                 { "help",      false, NULL, 'h' },
@@ -299,24 +322,22 @@ int main(int argc, char **argv) {
         }
 
         num_images = argc - optind;
-        images = malloc(sizeof(struct stack_image) * num_images);
+        readers = malloc(sizeof(struct stack_png_reader) * num_images);
         width = 0;
         height = gap * (num_images - 1);
         for (i = 0; i < num_images; i++) {
-                struct stack_png reader;
-                stack_png_reader_init(&reader, argv[i+optind]);
-                stack_png_reader_load_image(&reader, &images[i]);
-                width = max(width, images[i].width);
-                height += images[i].height;
-                stack_png_reader_destroy(&reader);
+                stack_png_reader_init(&readers[i], argv[i+optind]);
+                width = max(width, readers[i].width);
+                height += readers[i].height;
         }
 
         stack_image_init_blank(&result, width, height);
         y = 0;
         for (i = 0; i < num_images; i++) {
-                size_t x = (width - images[i].width) / 2;
-                stack_image_paste(&result, &images[i], x, y);
-                y += images[i].height + gap;
+                size_t x = (width - readers[i].width) / 2;
+                stack_image_paste_png_reader(&result, &readers[i], x, y);
+                stack_png_reader_destroy(&readers[i]);
+                y += readers[i].height + gap;
         }
 
         stack_png_writer_init(&writer, out_file);
@@ -324,8 +345,6 @@ int main(int argc, char **argv) {
 
         stack_png_writer_destroy(&writer);
         stack_image_destroy(&result);
-        for (i = 0; i < num_images; i++)
-                stack_image_destroy(&images[i]);
-        free(images);
+        free(readers);
         return EXIT_SUCCESS;
 }

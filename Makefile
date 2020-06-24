@@ -3,7 +3,8 @@ LIBS=libpng
 INSTALL_DIR=$(HOME)/.local/bin
 
 CFLAGS=-Wall -Werror -Wextra -Wpedantic -ansi -pedantic \
-	   $(shell for lib in $(LIBS); do pkg-config --cflags $$lib; done)
+	   $(shell for lib in $(LIBS); do pkg-config --cflags $$lib; done) \
+	   -march=native
 
 CLIBS=$(shell for lib in $(LIBS); do pkg-config --libs $$lib; done)
 
@@ -21,6 +22,10 @@ debug: $(CSOURCE)
 
 stack-png: $(CSOURCE)
 	$(CC) $(CFLAGS) $(CLIBS) $(OPT) $^ -o $@
+
+.PHONY: install
+install: stack-png
+	install ./stack-png $(INSTALL_DIR)/stack-png
 
 .PHONY: clean
 clean:
