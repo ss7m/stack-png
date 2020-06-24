@@ -7,20 +7,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <getopt.h>
+#include <time.h>
 
 #include <png.h>
 
 extern int optind;
 extern char *optarg;
-
-/*
- * Several TODO
- * TODO: Seperate stack_png_reader and stack_png_writer
- *      reader has width and height
- *      writer holds on to file pointer
- * TODO:
-        use past_from_reader so that we do like 50% less memcpy
- */
 
 #define STACK_PNG_VERSION "1.6.37"
 #define PNG_SIG_LENGTH 8
@@ -29,6 +21,12 @@ extern char *optarg;
 #define stack_png_reader_row_size(reader) (sizeof(uint8_t) * 3 * (reader)->width)
 #define max(A, B) ((A) > (B) ? (A) : (B))
 #define DEBUG_BOOL(b) printf("%s\n", (b) ? "true" : "false")
+#define TIME(stmt) do { \
+        clock_t t = clock(); \
+        stmt \
+        t = clock() - t; \
+        printf("%f\n", t / ((double) CLOCKS_PER_SEC)); \
+        } while(0);
 
 #define true 1
 #define false 0
@@ -171,6 +169,7 @@ void stack_png_writer_init(struct stack_png_writer *writer, char *file_name) {
         }
 
         png_init_io(png, file);
+        png_set_compression_level(png, 3);
         writer->png = png;
         writer->info = info;
         writer->file = file;
@@ -258,7 +257,9 @@ void stack_image_paste_png_reader(struct stack_image *dest,
 
         dest_row_size = stack_image_row_size(dest);
         src_row_size = stack_png_reader_row_size(src);
+
         src_rows = png_get_rows(src->png, src->info);
+
         dest_location = dest->data + y * dest_row_size + 3 * x;
 
         for(i = 0; i < src->height; i++) {
