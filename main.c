@@ -59,13 +59,6 @@ struct stack_pixel {
         uint8_t b;
 };
 
-void stack_memcpy(uint8_t * __restrict__ dest, uint8_t * __restrict__ src, size_t n) {
-        size_t i;
-        for (i = 0; i < n; i++) {
-                dest[i] = src[i];
-        }
-}
-
 /*
  * Reads the first 8 bytes and checks them against the magic png header
  * Should probably be followed with a call to "png_set_sig_bytes"
@@ -169,7 +162,7 @@ void stack_png_writer_init(struct stack_png_writer *writer, char *file_name) {
         }
 
         png_init_io(png, file);
-        png_set_compression_level(png, 3);
+        png_set_compression_level(png, 2);
         writer->png = png;
         writer->info = info;
         writer->file = file;
@@ -290,11 +283,7 @@ int main(int argc, char **argv) {
                 { 0,           0,     0,     0  }
         };
 
-        if (argc == 1) {
-                fprintf(stderr, "Send at least 1 argument\n");
-                return EXIT_FAILURE;
-        }
-
+        /* Read cmd line options */
         while ((option = getopt_long(argc, argv, "ho:g:", long_options, &long_index)) != -1) {
                 if (option == 0)
                         option = long_options[long_index].val;
@@ -314,7 +303,7 @@ int main(int argc, char **argv) {
                         printf("-h --help        Print this message and exit\n");
                         printf("-o --output=FILE Write the generated png to FILE\n");
                         printf("                 Default: out.png\n");
-                        printf("-g --gap-width=n Place an n pixel gap between each FILE\n");
+                        printf("-g --gap-width=n Place an n pixel gap between each file\n");
                         printf("                 Default: 0\n");
                         return EXIT_SUCCESS;
                 default:
@@ -322,7 +311,14 @@ int main(int argc, char **argv) {
                 }
         }
 
+        /* load up images; calculate size of output */
         num_images = argc - optind;
+
+        if (num_images <= 0) {
+                fprintf(stderr, "Please give at least 1 file\n");
+                return EXIT_FAILURE;
+        }
+
         readers = malloc(sizeof(struct stack_png_reader) * num_images);
         width = 0;
         height = gap * (num_images - 1);
@@ -332,8 +328,9 @@ int main(int argc, char **argv) {
                 height += readers[i].height;
         }
 
-        stack_image_init_blank(&result, width, height);
+        /* paste all the images together */
         y = 0;
+        stack_image_init_blank(&result, width, height);
         for (i = 0; i < num_images; i++) {
                 size_t x = (width - readers[i].width) / 2;
                 stack_image_paste_png_reader(&result, &readers[i], x, y);

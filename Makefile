@@ -3,12 +3,11 @@ LIBS=libpng
 INSTALL_DIR=$(HOME)/.local/bin
 
 CFLAGS=-Wall -Werror -Wextra -Wpedantic -ansi -pedantic \
-	   $(shell for lib in $(LIBS); do pkg-config --cflags $$lib; done) \
-	   -march=native
+	   $(shell for lib in $(LIBS); do pkg-config --cflags $$lib; done)
 
 CLIBS=$(shell for lib in $(LIBS); do pkg-config --libs $$lib; done)
 
-OPT=-O3 -s -flto
+OPT=-O3 -s -flto -march=native -mtune=native
 
 DEBUG=-Og -g -DDEBUG
 
